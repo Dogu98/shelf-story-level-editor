@@ -1,0 +1,25 @@
+name: Public Level Editor Smoke Tests
+
+on:
+  push:
+    branches:
+      - main
+      - 'setup/**'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Validate JSON
+        run: python3 -m json.tool levels.json > /dev/null
+      - name: Run smoke tests
+        run: node tests/smoke.mjs

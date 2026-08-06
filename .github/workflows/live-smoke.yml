@@ -1,0 +1,23 @@
+name: Live GitHub Pages Smoke Tests
+
+on:
+  workflow_run:
+    workflows:
+      - Deploy Public Level Editor
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-smoke:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Test deployed Pages assets
+        run: node tests/live-smoke.mjs

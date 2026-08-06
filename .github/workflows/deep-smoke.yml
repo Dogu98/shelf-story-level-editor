@@ -1,0 +1,29 @@
+name: Deep Public Editor Smoke Tests
+
+on:
+  push:
+    branches:
+      - main
+      - 'fix/**'
+      - 'test/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deep-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Validate production JSON
+        run: python3 -m json.tool levels.json > /dev/null
+      - name: Run baseline smoke suite
+        run: node tests/smoke.mjs
+      - name: Run deep editor suite
+        run: node tests/deep-smoke.mjs

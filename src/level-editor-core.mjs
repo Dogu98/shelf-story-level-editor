@@ -123,8 +123,14 @@ export function validateLevel(input) {
       blockers.add(blocker);
     }
   }
-  for (const item of level.items) for (const blocker of item.blockerIds) if (!itemMap.has(blocker)) issues.push(issue("error", "item.missing-blocker", `Blocker bulunamadı: ${blocker}`, level.levelNumber, item.itemId));
-  for (const [product, count] of productCounts) if (count % level.matchSize !== 0) issues.push(issue("error", "level.product-count", `${product} adedi ${level.matchSize} ile tam bölünmelidir.`, level.levelNumber));
+  for (const item of level.items) {
+    for (const blocker of item.blockerIds) {
+      if (!itemMap.has(blocker)) issues.push(issue("error", "item.missing-blocker", `Blocker bulunamadı: ${blocker}`, level.levelNumber, item.itemId));
+    }
+  }
+  for (const [product, count] of productCounts) {
+    if (count % level.matchSize !== 0) issues.push(issue("error", "level.product-count", `${product} adedi ${level.matchSize} ile tam bölünmelidir.`, level.levelNumber));
+  }
   if (hasBlockerCycle(level.items)) issues.push(issue("error", "level.blocker-cycle", "Blocker bağlantılarında döngü bulundu.", level.levelNumber));
   if (!issues.some(item => item.severity === "error") && !solveLevel(level).solvable) issues.push(issue("error", "level.unsolvable", "Level tepsi ve blocker kurallarıyla çözülemiyor.", level.levelNumber));
   return issues;
@@ -140,7 +146,7 @@ export function solveLevel(input) {
   }, 0));
   const productIndexes = new Map(PRODUCT_IDS.map((product, index) => [product, index]));
   const products = level.items.map(item => productIndexes.get(item.product) ?? 0);
-  const initialMask = (1 << level.items.length) - 1;
+  const fullMask = level.items.length === 30 ? 0x3fffffff : (1 << level.items.length) - 1;
   const memo = new Set();
   let exploredStates = 0;
 
@@ -157,14 +163,15 @@ export function solveLevel(input) {
       const productIndex = products[index];
       nextTray[productIndex]++;
       if (nextTray[productIndex] >= level.matchSize) nextTray[productIndex] -= level.matchSize;
-      if (nextTray.reduce((sum, count) => sum + count, 0) > level.trayCapacity) continue;
+      const nextTotal = nextTray.reduce((sum, count) => sum + count, 0);
+      if (nextTotal >= level.trayCapacity) continue;
       const result = search(mask & ~bit, nextTray, moves + 1);
       if (result !== null) return result;
     }
     return null;
   }
 
-  const minimumMoves = search(initialMask, Array(PRODUCT_IDS.length).fill(0), 0);
+  const minimumMoves = search(fullMask, Array(PRODUCT_IDS.length).fill(0), 0);
   return { solvable: minimumMoves !== null, exploredStates, minimumMoves: minimumMoves ?? 0 };
 }
 
@@ -220,8 +227,12 @@ export function exportCatalogJson(input) {
 
 export function parseCsv(text) {
   const rows = [];
-  let row = [], value = "", quoted = false;
+  let row = [];
+  let value = "";
+  let quoted = false;
   const source = String(text ?? "").replace(/^\uFEFF/, "");
+  const delimiter = detectCsvDelimiter(source);
+
   for (let index = 0; index <= source.length; index++) {
     const char = source[index] ?? "\n";
     if (quoted) {
@@ -229,10 +240,15 @@ export function parseCsv(text) {
       else if (char === '"') quoted = false;
       else value += char;
     } else if (char === '"') quoted = true;
-    else if (char === ",") { row.push(value); value = ""; }
-    else if (char === "\n") { row.push(value.replace(/\r$/, "")); if (row.some(cell => cell.trim() !== "")) rows.push(row); row = []; value = ""; }
-    else value += char;
+    else if (char === delimiter) { row.push(value); value = ""; }
+    else if (char === "\n") {
+      row.push(value.replace(/\r$/, ""));
+      if (row.some(cell => cell.trim() !== "")) rows.push(row);
+      row = [];
+      value = "";
+    } else value += char;
   }
+
   if (rows.length < 2) return [];
   const headers = rows[0].map(header => header.trim());
   return rows.slice(1).map(cells => Object.fromEntries(headers.map((header, index) => [header, cells[index] ?? ""])));
@@ -277,15 +293,34 @@ export function importRows(rows) {
   return normalizeCatalog({ schemaVersion: 1, levels });
 }
 
+function detectCsvDelimiter(source) {
+  const firstLine = String(source).split(/\r?\n/).find(line => line.trim() !== "") || "";
+  let commaCount = 0;
+  let semicolonCount = 0;
+  let quoted = false;
+  for (let index = 0; index < firstLine.length; index++) {
+    const char = firstLine[index];
+    if (char === '"' && firstLine[index + 1] === '"' && quoted) { index++; continue; }
+    if (char === '"') { quoted = !quoted; continue; }
+    if (quoted) continue;
+    if (char === ",") commaCount++;
+    if (char === ";") semicolonCount++;
+  }
+  return semicolonCount > commaCount ? ";" : ",";
+}
+
 function hasBlockerCycle(items) {
   const graph = new Map(items.map(item => [item.itemId, item.blockerIds]));
-  const visiting = new Set(), visited = new Set();
+  const visiting = new Set();
+  const visited = new Set();
   function visit(id) {
     if (visiting.has(id)) return true;
     if (visited.has(id)) return false;
     visiting.add(id);
     for (const blocker of graph.get(id) || []) if (graph.has(blocker) && visit(blocker)) return true;
-    visiting.delete(id); visited.add(id); return false;
+    visiting.delete(id);
+    visited.add(id);
+    return false;
   }
   return items.some(item => visit(item.itemId));
 }
@@ -298,7 +333,8 @@ function blockerDepth(items) {
     if (seen.has(id)) return 0;
     const nextSeen = new Set(seen).add(id);
     const value = (graph.get(id) || []).reduce((max, blocker) => Math.max(max, 1 + depth(blocker, nextSeen)), 0);
-    memo.set(id, value); return value;
+    memo.set(id, value);
+    return value;
   }
   return items.reduce((max, item) => Math.max(max, depth(item.itemId)), 0);
 }

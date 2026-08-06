@@ -8,6 +8,7 @@ import {
   validateCatalog
 } from "../src/level-editor-core.mjs";
 import {
+  GitHubPublisher,
   buildCatalogChangeSummary,
   createDefaultContentBranchName,
   decodeUtf8Base64,
@@ -78,6 +79,20 @@ await run("sanitizes new branch names", () => {
 await run("round trips Turkish JSON through base64", () => {
   const input = '{"name":"Çikolata ve Süt"}\n';
   assert.equal(decodeUtf8Base64(encodeUtf8Base64(input)), input);
+});
+
+await run("invokes browser fetch with the global object", async () => {
+  const guardedFetch = function () {
+    if (this !== globalThis) throw new TypeError("Illegal invocation");
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      async text() { return JSON.stringify({ object: { sha: "base-sha" } }); }
+    });
+  };
+  const publisher = new GitHubPublisher("test-token", guardedFetch);
+  const reference = await publisher.getBranchReference("Dogu98", "shelf-story", "main");
+  assert.equal(reference.object.sha, "base-sha");
 });
 
 await run("never persists the GitHub token", async () => {

@@ -60,7 +60,9 @@ export class GitHubPublisher {
     if (!String(token ?? "").trim()) throw new Error("GitHub tokenı gereklidir.");
     if (typeof fetchImplementation !== "function") throw new Error("Fetch desteği bulunamadı.");
     this.token = String(token).trim();
-    this.fetch = fetchImplementation;
+    // Some browsers require Window.fetch to be invoked with the global object as `this`.
+    // Wrapping it also prevents `this.fetch(...)` from rebinding it to the publisher instance.
+    this.fetch = (...args) => Reflect.apply(fetchImplementation, globalThis, args);
   }
 
   async preview({ owner, repo, baseBranch = "main", path = LEVELS_REPOSITORY_PATH, nextCatalog }) {
